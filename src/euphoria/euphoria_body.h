@@ -78,10 +78,38 @@ struct Params
     float groundFriction;   // 0..1 per contact, tangential velocity kept = 1 - friction
     float linearDamping;    // 1/s
     float angularDamping;   // 1/s
+    float jointDamping;     // 1/s, on a segment's angular velocity relative to its parent (kills ringing)
     float substepDt;        // s
     int maxSubsteps;
     float fallenMuscle;     // motor scale while on the ground
     float impulseScale;     // global scale for applyImpulse
+
+    // The "shot" behaviour, named after the NaturalMotion behaviours GTA IV runs on a hit (NmRsCBUShot: shock spin, spine
+    // pain, reach for wound, collapse of a wounded leg, head look at the wound, flinch; NmRsCBUCatchFall; the names are the
+    // ones the game's executable carries, the values and the code are this mod's own).
+    bool addShockSpin;            // a hit spins the torso about the vertical away from the side it struck
+    float shockSpinMin;           // rad/s
+    float shockSpinMax;           // rad/s
+    float shockSpinDecayMult;     // 1/s
+    float spinePainMultiplier;    // rad of torso bend per unit of hit strength (0..1)
+    float spinePainTime;          // s
+    float spinePainTwistMultiplier;
+    bool reachForWound;           // the nearer hand goes to the wound
+    float timeBeforeReachForWound;// s
+    float reachAbsorbtionTime;    // s the hand stays
+    float armReachAmount;         // pull strength 0..1
+    bool useHeadLook;             // the head turns to the wound
+    float headLookAtWoundMinTimer;// s
+    float headLookAtWoundMaxTimer;// s
+    float timeBeforeCollapseWoundLeg; // s before a leg hit lets the knee give
+    float woundLegCollapseTime;   // s the leg stays weak
+    float woundLegStiffness;      // muscle scale of the wounded leg while weak
+    bool upperBodyFlinch;         // shoulders hunch, arms come up for an instant
+    float flinchTime;             // s
+    float stiffnessDecayTarget;   // muscle scale when the balance budget is spent (shotRelax)
+    bool useCatchFall;            // falling: arms towards the ground in the fall direction, head away from it
+    bool useArmToSlowDown;
+    bool tryToAvoidHeadbuttingGround;
 };
 
 Params defaultParams();
@@ -163,6 +191,13 @@ public:
     int stumbles() const { return m_stumbles; }
     int falls() const { return m_falls; }
     const Segment &segment(int part) const { return m_segs[part]; }
+    bool woundActive() const { return m_woundActive; }
+    int woundPart() const { return m_woundPart; }
+    float shockSpin() const { return m_shockSpin; }
+    bool catchFalling() const { return m_catchFalling; }
+    // the hand (forearm tip) of the arm that reaches for the wound, world; valid while woundActive()
+    Vec3 reachingHand() const;
+    Vec3 woundPoint() const;
     Vec3 com() const;
     // 0..1 ramp of the get-up (1 = standing); used by the glue to blend the output back into the animation
     float getupBlend() const;
@@ -176,6 +211,7 @@ private:
     void solveLimits(float h);
     void solveGround(float h);
     void solveAuthority(float h, float authority, float upright, float footPlant);
+    void solveReach(float h);
     void updateVelocities(float h);
     void balanceController(float dt);
     void updateState(float dt);
@@ -211,6 +247,26 @@ private:
     Vec3 m_rootVel;         // world, u/s
     bool m_haveRoot;
     float m_budget;
+    // the shot behaviour's wound
+    bool m_woundActive;
+    int m_woundPart;
+    Vec3 m_woundLocal;      // the hit point in the wounded segment's frame
+    Vec3 m_woundDir;        // the bullet's direction, world
+    float m_woundTime;      // s since the hit
+    float m_woundStrength;  // 0..1
+    int m_woundSide;        // -1 left / +1 right (which arm reaches)
+    float m_woundLegTimer;  // s left of the wounded leg's weakness (0 = none)
+    int m_woundLeg;         // PART_THIGH_L / PART_THIGH_R
+    float m_shockSpin;      // rad/s left of the shock spin (signed)
+    float m_headLookTime;   // s the head keeps looking at the wound
+    bool m_catchFalling;    // the catch-fall arms are out this frame
+    Vec3 m_fallDir;         // world xy unit
+    // the body's facing from the animated hips (bones have no known forward axis): forward and left, world, unit
+    Vec3 m_fwd;
+    Vec3 m_left;
+    void updateBodyAxes();
+    float m_curAuthority;   // this frame's pelvis pull and upright strengths (for their damping in integrate)
+    float m_curUpright;
 };
 
 // hit-location helpers for the glue: which segment a game hit location / bone maps to

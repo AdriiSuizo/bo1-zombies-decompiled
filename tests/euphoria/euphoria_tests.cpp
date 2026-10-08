@@ -364,9 +364,120 @@ static void test_axes_quat()
     CHECK(length(t - u) < 1e-4f, "qFromAxes mismatch %.6f", length(t - u));
 }
 
+static void test_shot_shock_spin()
+{
+    printf("shot_shock_spin (a hit off the centre line spins the torso, then it settles)\n");
+    Sim s;
+    for ( int i = 0; i < 60; ++i ) s.advance(1.0f / 60.0f);
+    // a bullet from the front into the right shoulder area of the upper torso
+    Vec3 p = s.rd.segment(PART_TORSO_UPPER).pos + v3(2, -7, 2);
+    s.rd.applyImpulse(PART_TORSO_UPPER, p, v3(-55, 0, 0));
+    float peak = 0, late = 0;
+    for ( int i = 0; i < 90; ++i )
+    {
+        s.advance(1.0f / 60.0f);
+        float w = fabsf(s.rd.segment(PART_TORSO_UPPER).omega.z);
+        if ( i < 12 && w > peak ) peak = w;
+        if ( i >= 60 && w > late ) late = w;
+    }
+    printf("  torso yaw rate peak %.2f rad/s (first 0.2 s), max after 1 s %.2f, falls %d\n", peak, late, s.rd.falls());
+    CHECK(peak > 0.8f, "no shock spin: %.2f", peak);
+    CHECK(late < 1.2f, "the spin did not settle: %.2f", late);
+    CHECK(s.rd.falls() == 0, "fell");
+}
+
+static void test_shot_spine_pain_and_recovery()
+{
+    printf("shot_spine_pain (the torso folds around a gut shot and straightens again)\n");
+    Sim s;
+    for ( int i = 0; i < 60; ++i ) s.advance(1.0f / 60.0f);
+    s.rd.applyImpulse(PART_TORSO_LOWER, s.rd.segment(PART_TORSO_LOWER).pos + v3(5, 0, 0), v3(-70, 0, 0));
+    float peak = 0;
+    for ( int i = 0; i < 30; ++i ) { s.advance(1.0f / 60.0f); float d = s.jointDeviation(PART_TORSO_LOWER) + s.jointDeviation(PART_TORSO_UPPER); if ( d > peak ) peak = d; }
+    for ( int i = 0; i < 90; ++i ) s.advance(1.0f / 60.0f);
+    float after = s.jointDeviation(PART_TORSO_LOWER) + s.jointDeviation(PART_TORSO_UPPER);
+    printf("  spine deviation peak %.2f rad, after 2 s %.2f, falls %d\n", peak, after, s.rd.falls());
+    CHECK(peak > 0.12f, "the spine did not bend: %.2f", peak);
+    CHECK(after < 0.08f, "the spine did not straighten: %.2f", after);
+    CHECK(s.rd.falls() == 0, "fell");
+}
+
+static void test_shot_reach_for_wound()
+{
+    printf("shot_reach_for_wound (a hand goes to the wound and comes back)\n");
+    Sim s;
+    for ( int i = 0; i < 60; ++i ) s.advance(1.0f / 60.0f);
+    Vec3 wound = s.rd.segment(PART_TORSO_LOWER).pos + v3(6, 2, 0);
+    s.rd.applyImpulse(PART_TORSO_LOWER, wound, v3(-60, 0, 0));
+    float d0 = length(s.rd.reachingHand() - s.rd.woundPoint());
+    float dmin = d0;
+    for ( int i = 0; i < 60; ++i ) { s.advance(1.0f / 60.0f); if ( s.rd.woundActive() ) { float d = length(s.rd.reachingHand() - s.rd.woundPoint()); if ( d < dmin ) dmin = d; } }
+    for ( int i = 0; i < 120; ++i ) s.advance(1.0f / 60.0f);
+    float handDev = s.jointDeviation(PART_FOREARM_L) + s.jointDeviation(PART_FOREARM_R) + s.jointDeviation(PART_UPPER_ARM_L) + s.jointDeviation(PART_UPPER_ARM_R);
+    printf("  hand to wound %.1f -> %.1f u, arms back to the animation within %.2f rad, falls %d\n", d0, dmin, handDev, s.rd.falls());
+    CHECK(dmin < d0 * 0.6f, "the hand did not reach: %.1f of %.1f", dmin, d0);
+    CHECK(handDev < 0.3f, "the arms stayed off the animation: %.2f", handDev);
+    CHECK(s.rd.falls() == 0, "fell");
+}
+
+static void test_shot_wounded_leg_gives()
+{
+    printf("shot_wounded_leg (a leg hit buckles that knee, the body dips and stays up)\n");
+    Sim s;
+    for ( int i = 0; i < 60; ++i ) s.advance(1.0f / 60.0f);
+    s.rd.applyImpulse(PART_SHIN_R, s.rd.segment(PART_SHIN_R).pos, v3(-30, 0, 0));
+    float kneeR = 0, kneeL = 0, minH = s.rd.pelvisHeight();
+    for ( int i = 0; i < 60; ++i )
+    {
+        s.advance(1.0f / 60.0f);
+        float r = s.jointDeviation(PART_SHIN_R), l = s.jointDeviation(PART_SHIN_L);
+        if ( r > kneeR ) kneeR = r;
+        if ( l > kneeL ) kneeL = l;
+        if ( s.rd.pelvisHeight() < minH ) minH = s.rd.pelvisHeight();
+    }
+    for ( int i = 0; i < 90; ++i ) s.advance(1.0f / 60.0f);
+    printf("  right knee %.2f rad, left knee %.2f, pelvis dipped to %.1f of %.1f, state %s, falls %d\n", kneeR, kneeL, minH, s.rd.standingPelvisHeight(), stateName(s.rd.state()), s.rd.falls());
+    CHECK(kneeR > 0.3f, "the wounded knee did not give: %.2f", kneeR);
+    CHECK(kneeR > kneeL * 1.5f, "the other knee gave as much: %.2f vs %.2f", kneeL, kneeR);
+    CHECK(minH < s.rd.standingPelvisHeight() * 0.985f, "no dip");
+    CHECK(s.rd.falls() == 0 && s.rd.state() == STATE_STANDING, "did not stay up / recover");
+}
+
+static void test_catch_fall_arms()
+{
+    printf("catch_fall (arms go towards the ground in the fall direction)\n");
+    Sim s;
+    for ( int i = 0; i < 60; ++i ) s.advance(1.0f / 60.0f);
+    s.rd.applyImpulse(PART_TORSO_UPPER, s.rd.segment(PART_TORSO_UPPER).pos, v3(-300, 0, 40));
+    bool caught = false, armsForward = false;
+    for ( int i = 0; i < 90 && !armsForward; ++i )
+    {
+        s.advance(1.0f / 60.0f);
+        if ( !s.rd.catchFalling() ) continue;
+        caught = true;
+        Vec3 fallDir = normalize(v3(s.rd.comOffset().x, s.rd.comOffset().y, 0));
+        for ( int a = 0; a < 2; ++a )
+        {
+            int fore = a ? PART_FOREARM_R : PART_FOREARM_L, upper = a ? PART_UPPER_ARM_R : PART_UPPER_ARM_L;
+            const Segment &f = s.rd.segment(fore);
+            Vec3 hand = f.pos + rotate(f.q, f.axisLocal) * (f.length * 0.5f);
+            Vec3 shoulder = s.rd.segment(upper).pos - rotate(s.rd.segment(upper).q, s.rd.segment(upper).comOffsetLocal);
+            if ( dot(hand - shoulder, fallDir) > 4.0f ) armsForward = true;
+        }
+    }
+    printf("  catch fall engaged %d, a hand ahead of its shoulder in the fall direction %d, falls %d\n", caught, armsForward, s.rd.falls());
+    CHECK(caught, "catch fall never engaged");
+    CHECK(armsForward, "the arms did not go towards the fall");
+}
+
 int main()
 {
     test_axes_quat();
+    test_shot_shock_spin();
+    test_shot_spine_pain_and_recovery();
+    test_shot_reach_for_wound();
+    test_shot_wounded_leg_gives();
+    test_catch_fall_arms();
     test_standing_stays_up();
     test_small_hit_recovers();
     test_big_hit_falls_and_gets_up();

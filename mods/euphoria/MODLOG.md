@@ -118,3 +118,23 @@ verify → showcase → publish → field note). The field note is in the univer
   segment radii and cone limits; world collision for fallen bodies; hit segment by bone name; server-side hit boxes
   from the client's pose (or a server full body) if gameplay needs exact shots at a fallen zombie; melee / blast events
   to the client.
+
+## Session 2b (2026-10-08): the shot behaviour, GTA IV's structure
+- The user uploaded GTAIV.exe / PlayGTAIV.exe / gtaEncoder.exe / playerped.rpf / BlackOps.exe. No code or data was taken
+  from any of them (the rpf is encrypted, the NM behaviours are compiled code). Their STRINGS were useful:
+  GTAIV.exe names the behaviours (NmRsCBUShot, BodyBalance, CatchFall, DynamicBalancer: BalanceSolve / FootPlacement /
+  PelvisControl, BraceForImpact, Flinch, HeadLook, Pedal, ArmsWindmill, BodyWrithe, HighFall, RollDownStairs...) and
+  their parameters (addShockSpin, shockSpinMin/Max, spinePainMultiplier, reachForWound, timeBeforeReachForWound,
+  timeBeforeCollapseWoundLeg, stiffnessDecayTarget/Time, armsOutOnPush, useArmToSlowDown...). BlackOps.exe confirms the
+  rig's bone names (j_mainroot is the pelvis-level root, no "pelvis" bone) and `exec ragdoll.cfg`.
+- Implemented in the core with those names: shock spin, spine pain + twist, reach for wound, wounded-leg collapse,
+  head look, flinch, shot relax, catch fall. Five new tests (18 in all), all passing.
+- Bugs found by the tests on the way (worth remembering):
+  - bone-local axes: offsets like "rotate the arm about the bone's y" are wrong on a rig whose bones point down their
+    x towards the child; every behaviour axis now comes from world geometry (forward / left from the hips' positions);
+  - the head look used the head bone's x as its facing: near-vertical, so the yaw was noise and the head spun at 20 rad/s;
+  - a bullet's lever arm on a light segment gave ~100 rad/s of spin: per-segment caps, with the remainder of the
+    momentum handed to the whole body (a 320 hit must still knock the body down);
+  - the reach pulled the arm so hard the arm's velocity swamped the capture point and the balance controller stepped
+    into an oscillation: the capture point now ignores the arms, the reach is softer, and legs are not reached for;
+  - the pelvis springs (authority, upright) rang without damping: damped towards the animation's root velocity.

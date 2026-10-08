@@ -38,7 +38,7 @@ Params defaultParams()
     p.footPlant = 1.0f;
     p.supportRadius = 9.0f;
     p.stepRadius = 26.0f;
-    p.fallHeightFrac = 0.55f;
+    p.fallHeightFrac = 0.45f;
     p.fallTiltDeg = 65.0f;
     p.fallTiltTime = 0.35f;
     p.getupDelay = 1.2f;
@@ -46,10 +46,34 @@ Params defaultParams()
     p.groundFriction = 0.85f;
     p.linearDamping = 1.5f;
     p.angularDamping = 3.0f;
+    p.jointDamping = 14.0f;
     p.substepDt = 1.0f / 120.0f;
     p.maxSubsteps = 8;
     p.fallenMuscle = 0.12f;
     p.impulseScale = 1.0f;
+    p.addShockSpin = true;
+    p.shockSpinMin = 1.5f;
+    p.shockSpinMax = 7.0f;
+    p.shockSpinDecayMult = 6.0f;
+    p.spinePainMultiplier = 0.55f;
+    p.spinePainTime = 0.45f;
+    p.spinePainTwistMultiplier = 0.35f;
+    p.reachForWound = true;
+    p.timeBeforeReachForWound = 0.2f;
+    p.reachAbsorbtionTime = 0.7f;
+    p.armReachAmount = 0.8f;
+    p.useHeadLook = true;
+    p.headLookAtWoundMinTimer = 0.3f;
+    p.headLookAtWoundMaxTimer = 0.8f;
+    p.timeBeforeCollapseWoundLeg = 0.08f;
+    p.woundLegCollapseTime = 0.45f;
+    p.woundLegStiffness = 0.6f;
+    p.upperBodyFlinch = true;
+    p.flinchTime = 0.25f;
+    p.stiffnessDecayTarget = 0.45f;
+    p.useCatchFall = true;
+    p.useArmToSlowDown = true;
+    p.tryToAvoidHeadbuttingGround = true;
     return p;
 }
 
@@ -173,6 +197,17 @@ bool ActiveRagdoll::init(const PoseInput &pose, const Params &params)
     m_leanAngle = 0.0f;
     m_armRaise = 0.0f;
     m_budget = 1.0f;
+    m_woundActive = false;
+    m_woundLegTimer = 0.0f;
+    m_shockSpin = 0.0f;
+    m_headLookTime = 0.0f;
+    m_catchFalling = false;
+    m_fallDir = v3(1, 0, 0);
+    m_fwd = v3(1, 0, 0);
+    m_left = v3(0, 1, 0);
+    m_curAuthority = 1.0f;
+    m_curUpright = 1.0f;
+    updateBodyAxes();
     m_prevRootTarget = pose.bonePos[PART_PELVIS];
     m_rootVel = v3(0, 0, 0);
     m_haveRoot = true;
@@ -201,14 +236,96 @@ void ActiveRagdoll::applyImpulse(int part, Vec3 worldPoint, Vec3 impulse)
         return;
     Segment &s = m_segs[part];
     Vec3 J = impulse * m_params.impulseScale;
-    s.vel += J * s.invMass;
+    // a bullet on one light segment: its own velocity change is capped (the joints spread the rest), and the spin it
+    // gets from the lever arm is capped too (a 7-unit lever on a torso segment would otherwise be ~100 rad/s)
+    Vec3 dv = J * s.invMass;
+    float dvl = length(dv);
+    if ( dvl > 500.0f )
+    {
+        // momentum is kept: what the segment cannot take at once goes to the whole body (the joints would pass it on)
+        Vec3 dvSeg = dv * (500.0f / dvl);
+        Vec3 rest = J - dvSeg * s.mass;
+        float total = 0.0f;
+        for ( int i = 0; i < PART_COUNT; ++i )
+            total += m_segs[i].mass;
+        for ( int i = 0; i < PART_COUNT; ++i )
+            m_segs[i].vel += rest * (1.0f / total);
+        dv = dvSeg;
+    }
+    s.vel += dv;
     Vec3 r = worldPoint - s.pos;
-    s.omega += cross(r, J) * s.invInertia;
+    Vec3 dw = cross(r, J) * s.invInertia;
+    float dwl = length(dw);
+    if ( dwl > 10.0f )
+        dw = dw * (10.0f / dwl);
+    s.omega += dw;
     // the balance budget: a hit of 230 (mass * u/s) on a 1-mass body spends it all; it recovers in updateState
-    m_budget = clampf(m_budget - length(J) / (230.0f * m_params.bodyMass), 0.0f, 1.0f);
+    float strength = clampf(length(J) / (230.0f * m_params.bodyMass), 0.0f, 1.0f);
+    m_budget = clampf(m_budget - strength, 0.0f, 1.0f);
     // a hit also shoves the neighbours a little through the joint solve; the COM velocity change feeds the balance
     if ( m_state == STATE_STANDING )
         m_state = STATE_STUMBLING, m_stateTime = 0.0f, ++m_stumbles;
+
+    // --- the shot behaviour (GTA IV's NmRsCBUShot, in this mod's own terms) ---
+    if ( strength < 0.02f )
+        return;
+    Vec3 dir = normalize(J);
+    m_woundActive = true;
+    m_woundPart = part;
+    m_woundLocal = rotateInv(s.q, worldPoint - s.pos);
+    m_woundDir = dir;
+    m_woundTime = 0.0f;
+    m_woundStrength = strength;
+    // which side was hit (the body's left is from the hips; bones have no known lateral axis)
+    updateBodyAxes();
+    Vec3 fromPelvis = worldPoint - m_segs[PART_PELVIS].pos;
+    m_woundSide = dot(fromPelvis, m_left) >= 0.0f ? -1 : 1; // -1 = the left hand reaches (the nearer one)
+    if ( part == PART_UPPER_ARM_L || part == PART_FOREARM_L )
+        m_woundSide = 1;
+    if ( part == PART_UPPER_ARM_R || part == PART_FOREARM_R )
+        m_woundSide = -1;
+    bool upperBody = part == PART_TORSO_LOWER || part == PART_TORSO_UPPER || part == PART_HEAD || part == PART_UPPER_ARM_L || part == PART_UPPER_ARM_R || part == PART_FOREARM_L || part == PART_FOREARM_R;
+    if ( m_params.addShockSpin && upperBody )
+    {
+        // torque about the vertical from a hit off the centre line: the body spins away from the struck side
+        Vec3 r2 = v3(fromPelvis.x, fromPelvis.y, 0.0f);
+        Vec3 d2 = v3(dir.x, dir.y, 0.0f);
+        float lever = cross(r2, d2).z; // units: a centre hit has none, a shoulder hit ~7
+        float spin = clampf(fabsf(lever) * 0.12f, 0.0f, 1.0f);
+        float mag = spin > 0.1f ? lerpf(m_params.shockSpinMin, m_params.shockSpinMax, spin) * (0.3f + 0.7f * strength) : 0.0f;
+        m_shockSpin = lever >= 0.0f ? mag : -mag;
+    }
+    if ( part == PART_THIGH_L || part == PART_SHIN_L || part == PART_FOOT_L )
+        m_woundLeg = PART_THIGH_L, m_woundLegTimer = m_params.timeBeforeCollapseWoundLeg + m_params.woundLegCollapseTime;
+    else if ( part == PART_THIGH_R || part == PART_SHIN_R || part == PART_FOOT_R )
+        m_woundLeg = PART_THIGH_R, m_woundLegTimer = m_params.timeBeforeCollapseWoundLeg + m_params.woundLegCollapseTime;
+    if ( m_params.useHeadLook )
+        m_headLookTime = lerpf(m_params.headLookAtWoundMinTimer, m_params.headLookAtWoundMaxTimer, strength);
+}
+
+void ActiveRagdoll::updateBodyAxes()
+{
+    Vec3 l = m_target.bonePos[PART_THIGH_L] - m_target.bonePos[PART_THIGH_R];
+    l.z = 0.0f;
+    if ( lengthSq(l) < 1e-4f )
+        return;
+    m_left = normalize(l);
+    m_fwd = normalize(cross(m_left, v3(0, 0, 1)));
+}
+
+Vec3 ActiveRagdoll::woundPoint() const
+{
+    if ( !m_woundActive )
+        return v3(0, 0, 0);
+    const Segment &s = m_segs[m_woundPart];
+    return s.pos + rotate(s.q, m_woundLocal);
+}
+
+Vec3 ActiveRagdoll::reachingHand() const
+{
+    int fore = m_woundSide < 0 ? PART_FOREARM_L : PART_FOREARM_R;
+    const Segment &f = m_segs[fore];
+    return f.pos + rotate(f.q, f.axisLocal) * (f.length * 0.5f);
 }
 
 Vec3 ActiveRagdoll::com() const
@@ -315,7 +432,16 @@ void ActiveRagdoll::integrate(float h)
         s.prevQ = s.q;
         s.vel += g * h;
         if ( i == PART_PELVIS )
+        {
             s.vel += m_bias * h;
+            // the pelvis springs (authority, upright) need damping or the whole body rings around the animation
+            Vec3 rel = s.vel - m_rootVel;
+            s.vel -= rel * clampf(6.0f * m_curAuthority * h, 0.0f, 0.9f);
+            s.omega = s.omega * (1.0f - clampf(10.0f * m_curUpright * h, 0.0f, 0.9f));
+        }
+        // shock spin: the torso's yaw rate is driven towards the spin (a rate, not an accumulation per substep)
+        if ( m_shockSpin != 0.0f && (i == PART_TORSO_LOWER || i == PART_TORSO_UPPER || i == PART_HEAD) )
+            s.omega.z += (m_shockSpin - s.omega.z) * clampf(h * 30.0f, 0.0f, 1.0f);
         s.vel = s.vel * ld;
         s.omega = s.omega * ad;
         s.pos += s.vel * h;
@@ -353,19 +479,76 @@ void ActiveRagdoll::solveMotors(float h, float muscle)
             target = qFromAxisAngle(m_leanAxis, m_leanAngle * 0.5f) * target;
         if ( m_armRaise != 0.0f && (i == PART_UPPER_ARM_L || i == PART_UPPER_ARM_R) )
         {
-            Vec3 side = i == PART_UPPER_ARM_L ? v3(0, 1, 0) : v3(0, -1, 0);
-            Vec3 axis = rotate(ps.q, side);
-            target = qFromAxisAngle(axis, -m_armRaise) * target; // out and up
+            // out and up: abduction about the body's forward axis (a hanging left arm swings towards the body's left)
+            float sign = i == PART_UPPER_ARM_L ? 1.0f : -1.0f;
+            target = qFromAxisAngle(m_fwd, sign * m_armRaise) * target;
         }
         if ( m_swingFoot >= 0 && ((i == PART_SHIN_L && m_swingFoot == PART_FOOT_L) || (i == PART_SHIN_R && m_swingFoot == PART_FOOT_R)) )
+            target = qFromAxisAngle(m_left, 0.6f) * target; // knee flexion: the shin swings back about the body's lateral axis
+        float partMuscle = 1.0f;
+        if ( m_woundActive )
         {
-            Vec3 axis = rotate(ps.q, v3(0, 1, 0));
-            target = qFromAxisAngle(axis, 0.6f) * target; // knee flexion
+            float t = m_woundTime;
+            // spine pain: the torso folds around the wound (bends in the bullet's direction) and twists, then recovers
+            if ( (i == PART_TORSO_LOWER || i == PART_TORSO_UPPER) && t < m_params.spinePainTime )
+            {
+                float env = sinf(PI * t / m_params.spinePainTime);
+                Vec3 bendAxis = cross(v3(0, 0, 1), m_woundDir);
+                float bend = m_params.spinePainMultiplier * m_woundStrength * env * 0.5f;
+                if ( lengthSq(bendAxis) > 1e-6f )
+                    target = qFromAxisAngle(normalize(bendAxis), bend) * target;
+                float twist = m_params.spinePainTwistMultiplier * m_woundStrength * env * (float)m_woundSide * 0.5f;
+                target = qFromAxisAngle(v3(0, 0, 1), twist) * target;
+            }
+            // flinch: shoulders up and in for an instant
+            if ( m_params.upperBodyFlinch && (i == PART_UPPER_ARM_L || i == PART_UPPER_ARM_R) && t < m_params.flinchTime )
+            {
+                // arms come up and forward about the body's lateral axis
+                float env = sinf(PI * t / m_params.flinchTime);
+                target = qFromAxisAngle(m_left, -0.5f * env * m_woundStrength) * target;
+            }
+            // head look: the head turns towards the wound (yaw from the body's facing; the head bone has no forward axis)
+            if ( i == PART_HEAD && m_headLookTime > 0.0f )
+            {
+                Vec3 toWound = woundPoint() - s.pos;
+                toWound.z = 0.0f;
+                if ( lengthSq(toWound) > 1.0f )
+                {
+                    Vec3 w = normalize(toWound);
+                    float ang = atan2f(cross(m_fwd, w).z, dot(m_fwd, w));
+                    target = qFromAxisAngle(v3(0, 0, 1), clampf(ang, -0.8f, 0.8f) * 0.35f) * target;
+                }
+            }
+        }
+        // a wounded leg gives after a moment: its knee cannot hold
+        if ( m_woundLegTimer > 0.0f && m_woundLegTimer < m_params.woundLegCollapseTime
+            && (i == m_woundLeg || (m_woundLeg == PART_THIGH_L && i == PART_SHIN_L) || (m_woundLeg == PART_THIGH_R && i == PART_SHIN_R)) )
+        {
+            partMuscle = m_params.woundLegStiffness;
+            if ( i != m_woundLeg )
+                target = qFromAxisAngle(m_left, 0.35f) * target; // the knee buckles
+        }
+        // catch fall: the arms go towards the ground in the fall direction, the head away from it
+        if ( m_catchFalling )
+        {
+            if ( m_params.useArmToSlowDown && (i == PART_UPPER_ARM_L || i == PART_UPPER_ARM_R) )
+            {
+                Vec3 want = normalize(m_fallDir + v3(0, 0, -0.9f));
+                Vec3 cur = rotate(target, s.axisLocal);
+                target = qFromTo(normalize(cur), want) * target;
+                partMuscle *= 1.5f;
+            }
+            if ( m_params.tryToAvoidHeadbuttingGround && i == PART_HEAD )
+            {
+                Vec3 axis = cross(m_fallDir, v3(0, 0, 1));
+                if ( lengthSq(axis) > 1e-6f )
+                    target = qFromAxisAngle(normalize(axis), 0.5f) * target;
+            }
         }
         Quat qerr = qnormalize(target * conj(s.q));
         Vec3 e = qToRotVec(qerr);
         err += length(e);
-        float k = kParts[i].muscle * muscle;
+        float k = kParts[i].muscle * muscle * partMuscle;
         if ( k <= 0.0f )
             continue;
         // XPBD compliance (rad per unit of generalized correction, times h^2 inside): the segments' inverse
@@ -453,6 +636,29 @@ void ActiveRagdoll::solveAuthority(float h, float authority, float upright, floa
     }
 }
 
+// the shot behaviour's reach for wound: the hand of the far side crosses to the wound and stays a moment
+void ActiveRagdoll::solveReach(float h)
+{
+    if ( !m_woundActive || !m_params.reachForWound )
+        return;
+    if ( m_state == STATE_FALLEN || m_catchFalling )
+        return;
+    // only wounds a standing body can reach without bending down: the torso and the pelvis
+    if ( m_woundPart != PART_TORSO_LOWER && m_woundPart != PART_TORSO_UPPER && m_woundPart != PART_PELVIS )
+        return;
+    float t = m_woundTime - m_params.timeBeforeReachForWound;
+    if ( t < 0.0f || t > m_params.reachAbsorbtionTime )
+        return;
+    float env = sinf(PI * t / m_params.reachAbsorbtionTime);
+    int fore = m_woundSide < 0 ? PART_FOREARM_L : PART_FOREARM_R;
+    Segment &f = m_segs[fore];
+    Vec3 r = rotate(f.q, f.axisLocal) * (f.length * 0.5f);
+    Vec3 hand = f.pos + r;
+    Vec3 want = woundPoint();
+    float compliance = 2e-2f / (m_params.armReachAmount * env * (0.3f + 0.7f * m_woundStrength) + 1e-3f);
+    positionalCorrection(fore, -1, r, v3(0, 0, 0), want - hand, compliance, h);
+}
+
 void ActiveRagdoll::updateVelocities(float h)
 {
     float inv = 1.0f / h;
@@ -472,6 +678,13 @@ void ActiveRagdoll::updateVelocities(float h)
                 s.vel.z = 0.0f;
             s.omega = s.omega * keep;
         }
+        // joint damping: the angular velocity relative to the parent decays (XPBD motors alone ring)
+        int p = kParts[i].parent;
+        if ( p >= 0 )
+        {
+            Vec3 rel = s.omega - m_segs[p].omega;
+            s.omega -= rel * clampf(m_params.jointDamping * h, 0.0f, 0.9f);
+        }
         // safety clamps: nothing in a game body moves faster than this
         float vl = length(s.vel);
         if ( vl > 4000.0f )
@@ -490,6 +703,9 @@ void ActiveRagdoll::balanceController(float dt)
     float m = 0.0f;
     for ( int i = 0; i < PART_COUNT; ++i )
     {
+        // the arms are light and fast (a reach, a flinch): their velocity would swamp the capture point
+        if ( i == PART_UPPER_ARM_L || i == PART_UPPER_ARM_R || i == PART_FOREARM_L || i == PART_FOREARM_R )
+            continue;
         cv += m_segs[i].vel * m_segs[i].mass;
         m += m_segs[i].mass;
     }
@@ -620,9 +836,38 @@ void ActiveRagdoll::step(float dt)
     m_rootVel = lerp(m_rootVel, rv, 0.5f);
     m_prevRootTarget = rootNow;
 
+    updateBodyAxes();
     balanceController(dt);
 
-    float muscle = m_params.muscleStrength;
+    // the shot behaviour's clocks
+    if ( m_woundActive )
+    {
+        m_woundTime += dt;
+        if ( m_woundTime > 2.0f )
+            m_woundActive = false;
+    }
+    if ( m_headLookTime > 0.0f )
+        m_headLookTime -= dt;
+    if ( m_woundLegTimer > 0.0f )
+        m_woundLegTimer -= dt;
+    m_shockSpin *= clampf(1.0f - m_params.shockSpinDecayMult * dt, 0.0f, 1.0f);
+    if ( fabsf(m_shockSpin) < 0.05f )
+        m_shockSpin = 0.0f;
+    // catch fall: once the balance is gone (still up, or just down), arms out towards the ground in the fall direction
+    m_catchFalling = false;
+    if ( m_params.useCatchFall && ((m_state == STATE_STUMBLING && m_stability < 0.2f) || (m_state == STATE_FALLEN && m_stateTime < 0.6f)) )
+    {
+        Vec3 d = m_comOffset;
+        d.z = 0.0f;
+        if ( lengthSq(d) > 1.0f )
+        {
+            m_fallDir = normalize(d);
+            m_catchFalling = true;
+        }
+    }
+
+    // shotRelax: the muscles relax as the balance budget is spent (stiffnessDecayTarget at 0), back with it
+    float muscle = m_params.muscleStrength * lerpf(m_params.stiffnessDecayTarget, 1.0f, m_budget);
     float authority = m_params.authority * m_authorityScale;
     float upright = m_params.uprightStrength * (0.3f + 0.7f * m_stability);
     float footPlant = m_params.footPlant * (0.2f + 0.8f * m_budget);
@@ -641,11 +886,14 @@ void ActiveRagdoll::step(float dt)
         upright *= t;
         footPlant *= t;
     }
+    m_curAuthority = authority;
+    m_curUpright = upright;
     for ( int s = 0; s < n; ++s )
     {
         integrate(h);
         solveAuthority(h, authority, upright, footPlant);
         solveMotors(h, muscle);
+        solveReach(h);
         solveJoints(h);
         solveLimits(h);
         solveGround(h);

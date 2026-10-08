@@ -112,6 +112,35 @@ been compiled by MSVC nor run in the game. Treat the first Windows build and the
   frame in `console_mp.log` (its state, stability, pelvis height, tracking error, stumbles, falls), or
   `tools\headless.ps1 -Client -ShotsAtMs "60000 90000"` for back-buffer screenshots on the private desktop.
 
+## The shot behaviour (GTA IV's structure)
+
+The hit reaction follows the structure of the NaturalMotion behaviours GTA IV runs on a shot. Their names were read from
+the strings of the user's own `GTAIV.exe` (`NmRsCBUShot`, `NmRsCBUBodyBalance`, `NmRsCBUCatchFall`,
+`NmRsCBUDynamicBalancer` with `FootPlacement` / `PelvisControl`, and parameters such as `addShockSpin`,
+`spinePainMultiplier`, `reachForWound`, `timeBeforeCollapseWoundLeg`, `stiffnessDecayTarget`, `armsOutOnPush`,
+`useArmToSlowDown`, `tryToAvoidHeadbuttingGround`). Only the names and the idea were taken: the values and every line of
+code are this mod's (`src/euphoria/euphoria_body.cpp`, `Params` fields with the same names).
+
+| piece (NM name) | what the body does here | checked by (tests/euphoria) |
+| --- | --- | --- |
+| shock spin (`addShockSpin`, `shockSpinMin/Max/DecayMult`) | a hit off the centre line spins the torso and head about the vertical, away from the struck side, decaying over ~0.3 s | `shot_shock_spin`: peak ≥ 0.8 rad/s, below 1.2 after 1 s, no fall |
+| spine pain (`spinePainMultiplier/Time/TwistMultiplier`) | the torso folds in the bullet's direction and twists towards the struck side for 0.45 s, then straightens | `shot_spine_pain`: bend ≥ 0.12 rad, back within 0.08 |
+| reach for wound (`reachForWound`, `timeBeforeReachForWound`, `reachAbsorbtionTime`, `armReachAmount`) | 0.2 s after a torso / pelvis hit the nearer hand goes to the wound and stays 0.7 s | `shot_reach_for_wound`: hand-to-wound distance < 60%, arms back to the animation |
+| wounded leg (`timeBeforeCollapseWoundLeg`, `woundLegStiffness`) | a leg hit weakens that leg for 0.45 s and bends its knee: the body dips on that side and catches itself | `shot_wounded_leg`: the hit knee gives 1.5× more than the other, no fall |
+| head look (`useHeadLook`, `headLookAtWoundMin/MaxTimer`) | the head turns towards the wound for 0.3-0.8 s | (visual; covered by the no-NaN and recovery tests) |
+| flinch (`upperBodyFlinch`, `flinchTime`) | arms come up and forward for 0.25 s | (visual) |
+| shot relax (`stiffnessDecayTarget`) | every hit relaxes the muscles towards the target as the balance budget is spent; they recover in ~1.5 s, so hits add up | `accumulated_hits_fall` |
+| catch fall (`useCatchFall`, `useArmToSlowDown`, `tryToAvoidHeadbuttingGround`) | once the balance is gone the arms go towards the ground in the fall direction and the head tilts away | `catch_fall`: engaged with a hand ahead of its shoulder |
+| body balance (`armsOutOnPush`-style) | the capture-point controller: lean, arms out, a step, a bent knee | `small_hit_recovers`, `walking_hit_recovers` |
+
+Impulses on one light segment are capped per segment (500 units/s of its own velocity, 10 rad/s of spin from the lever
+arm); what the segment cannot take goes to the whole body, so momentum is kept and a shotgun blast still knocks the body
+down. The capture point ignores the arms' velocity (a reaching arm would otherwise read as a loss of balance).
+
+Not verified in the game, like the rest of the engine integration: the look of these on the real zombie skeleton, and
+whether the bone axes assumed for "the body's forward / left" (taken from the hips' positions, not from any bone axis,
+on purpose) hold on BO1's rig.
+
 ## How it works (files)
 
 - `maps/euphoria/_euphoria.gsc`: per zombie `self.euphoria` (and `self.drunk`), crawlers off, the self-test.
