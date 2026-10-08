@@ -75,6 +75,7 @@ void Actor_SP_RegisterDvars()
     // zombies: SP 0x007e10ad, DAT_01b4c744 (150, 0..500, 0x2080); read by the player look-at update.
     ai_playerLOSRange = _Dvar_RegisterFloat("ai_playerLOSRange", 150.0f, 0.0f, 500.0f, 0x2080u, "");
     Actor_SP_RegisterExposedDvars();
+    Actor_Stagger_RegisterDvars(); // mod: euphoria - bo1_mod_stagger* (actor_sp_stagger.cpp)
 }
 
 // --- species ------------------------------------------------------------------------------------
@@ -190,6 +191,9 @@ static const actor_sp_ext_field_t g_actorSpExtFields[] =
     { "engageminfalloffdist", offsetof(actor_sp_ext_t, engageMinFalloffDist) },
     { "engagemaxdist", offsetof(actor_sp_ext_t, engageMaxDist) },
     { "engagemaxfalloffdist", offsetof(actor_sp_ext_t, engageMaxFalloffDist) },
+    // mod: euphoria (mods/euphoria) - the procedural stagger (actor_sp_stagger.cpp)
+    { "drunk", offsetof(actor_sp_ext_t, stagger.amount) },
+    { "drunkstumbles", offsetof(actor_sp_ext_t, stagger.stumbles) },
 };
 
 static int Actor_SP_ExtFieldOfs(const actor_fields_s *pField)

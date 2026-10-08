@@ -2,6 +2,7 @@
 #include <qcommon/actor_model_state.h>
 #include <new>
 #include <game_sp/g_sp_measure.h>
+#include <game_sp/actor_sp_stagger.h> // mod: euphoria
 #include "actor_mp.h"
 #include "g_main_mp.h"
 #include "g_utils_mp.h"
@@ -4619,6 +4620,7 @@ LABEL_36:
             Actor_DecideOrientation(self);
             Actor_UpdateBodyAngle(self);
             Actor_UpdateLookAngles(self);
+            Actor_Stagger_Tilt(self); // mod: euphoria - pitch and roll of the sway (retail: Actor_SetBodyAngle keeps them 0)
             return;
     }
 }
@@ -5276,9 +5278,13 @@ void Path_UpdateMovementDelta(actor_s *self, float fMoveDist)
     if (Actor_IsDogSpecies(self->species) && (self->Path.flags & 2) != 0)
         fMoveDist = Path_UpdateMomentum(self, perp, fMoveDist);
 
+    // mod: euphoria - the heading wander and the stumbles of a drunk actor (no-op at self.drunk 0, game_sp/actor_sp_stagger.cpp)
+    Actor_Stagger_Move(self, perp, vLookDir, &fMoveDist);
+
     self->Physics.vWishDelta[0] = fMoveDist * perp[0];
     self->Physics.vWishDelta[1] = fMoveDist * perp[1];
     self->Physics.vWishDelta[2] = fMoveDist * perp[2];
+    Actor_Stagger_Push(self); // mod: euphoria - the sideways lurch of a stumble
 
     self->moveHistory[moveHistoryIndex][0] = vLookDir[0];
     self->moveHistory[moveHistoryIndex][1] = vLookDir[1]; // zombies: V1 was [0] (SP 0x00500bab: +0x21e4)

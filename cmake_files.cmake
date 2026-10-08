@@ -890,6 +890,8 @@ source_group("game_mp" FILES ${SRC_GAME_MP})
 set(SRC_GAME_SP_ACTOR
 	"${SRC_DIR}/game_sp/actor_sp_ext.cpp"
 	"${SRC_DIR}/game_sp/actor_sp_ext.h"
+	"${SRC_DIR}/game_sp/actor_sp_stagger.cpp"
+	"${SRC_DIR}/game_sp/actor_sp_stagger.h"
 )
 source_group("game_sp" FILES ${SRC_GAME_SP_ACTOR})
 

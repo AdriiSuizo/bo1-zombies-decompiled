@@ -4,6 +4,7 @@
 // actor state lives here.
 
 #include <game/actor.h>
+#include "actor_sp_stagger.h" // mod: euphoria
 
 struct AnimScriptList;
 struct bgs_t;
@@ -67,6 +68,7 @@ struct actor_sp_ext_t
     gentity_s *turret;                  // SP actor+0x21a8; no MP actor turret member
     int lookAtEntNum;                   // SP actor+0x88, lookatentity; ENTITYNUM_NONE at spawn (SP 0x007bbf50)
     unsigned short sightTraceHitNum[MAX_SENTIENTS_CAP]; // SP +0x31f8: per-sentient collision-brush hints
+    actor_stagger_t stagger;            // mod: euphoria - script "drunk" / "drunkstumbles" (actor_sp_stagger.cpp); 0 = retail
 };
 
 actor_sp_ext_t *Actor_SP_Ext(const actor_s *actor);

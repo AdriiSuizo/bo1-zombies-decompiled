@@ -18,6 +18,7 @@
 </style>
 <script type="text/javascript" src="horde_flags.js"></script>
 <script type="text/javascript" src="nightmare_flags.js"></script>
+<script type="text/javascript" src="euphoria_flags.js"></script>
 <script type="text/javascript">
 // Launcher for the Black Ops 1 zombies build (not part of the original game). Starts the game the way the
 // original game is started: exe and game files from build\Release, borderless window. Defaults to vanilla.
@@ -119,6 +120,7 @@ function args() {
     a += " +set fs_mods" + (el("zinfo").checked ? " zinfo" : "") + (el("noperks").checked ? " noperks +set noperks 1" : "");
   }
   if (!el("difficulty").disabled) a = nightmareFlags(el("difficulty").value, a, m[0]); // Normal = 0: unchanged
+  a = euphoriaFlags(el("euphoria").value, a); // tools/euphoria_flags.js: drunk zombies (mods/euphoria); Off = 0: unchanged
   if (el("quickrestart").checked) a += " +set bo1_mod_quickrestart 1"; // R after game over: SP_QuickRestart
   return a + " +devmap " + m[0];
 }
@@ -163,6 +165,7 @@ function play() {
   <label><input type="checkbox" id="fps" onclick="refresh()"> FPS counter</label>
   <label><input type="checkbox" id="zinfo" onclick="refresh()"> Tab: zombie counter</label>
   <label><input type="checkbox" id="noperks" onclick="refresh()"> No perk machines <span class="note">with or without horde; Pack-a-Punch and the box stay</span></label>
+  <label>Drunk zombies <select id="euphoria" onchange="refresh()"><option value="0" selected>Off</option><option value="0.4">Tipsy</option><option value="0.75">Drunk</option><option value="1">Wasted</option></select> <span class="note">mods/euphoria: they stagger, lurch and nearly fall, with their own animations; any map, stacks with horde</span></label>
   <label><input type="checkbox" id="quickrestart" checked onclick="refresh()"> R restarts after game over <span class="note">same map, same settings</span></label>
 </fieldset>
 <button onclick="play()">Play</button>

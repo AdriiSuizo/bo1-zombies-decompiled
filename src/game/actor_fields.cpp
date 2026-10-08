@@ -56,7 +56,7 @@ actor_fields_s aifield_delete =
 // 0x2780 / 0x27B0). The literal rows past 560 read and wrote other members, for MP dogs too.
 #define AFOFS(member) ((int)offsetof(actor_s, member))
 
-const actor_fields_s aifields[92] =
+const actor_fields_s aifields[94] =
 {
   { "type", AFOFS(species), { 4 }, F_INT, ActorScr_SetSpecies, ActorScr_GetSpecies },
   { "isdog", AFOFS(species), { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_GetIsDog },
@@ -157,6 +157,10 @@ const actor_fields_s aifields[92] =
   // zombies: not a retail field. Mods (mods/horde) set it: no actor-vs-actor steering (close ent, move away, team
   // move dodge / pile-up) for this actor or against it. Default 0 = retail behaviour.
   { "noactorcollision", AFOFS(noActorCollision), { 1 }, F_BYTE, NULL, NULL },
+  // mod: euphoria (mods/euphoria) - not retail fields. drunk 0 (default) = retail, up to 1 = the full procedural stagger
+  // (game_sp/actor_sp_stagger.cpp); drunkstumbles counts its stumbles (read-only, for the mod's self-test).
+  { "drunk", AF_SP_EXT, { 4 }, F_FLOAT, ActorScr_SP_SetExtField, ActorScr_SP_GetExtField },
+  { "drunkstumbles", AF_SP_EXT, { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_SP_GetExtField },
   { NULL, 0, { 0 }, F_INT, NULL, NULL }
 };
 
