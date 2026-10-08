@@ -425,4 +425,5 @@ FodyWeavers.xsd
 
 .idea/*
 Debug/*
-__BO1Zombiesbuild-tests/
+__BO1Zombies
+build-tests/
