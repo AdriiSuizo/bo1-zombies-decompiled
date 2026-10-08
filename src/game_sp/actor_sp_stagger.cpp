@@ -1,6 +1,7 @@
 // mod: euphoria (mods/euphoria) - procedural stagger for actors, see actor_sp_stagger.h. NOT part of the original game.
 #include "actor_sp_stagger.h"
 #include "actor_sp_ext.h"
+#include "actor_sp_euphoria.h"
 #include <game_mp/actor_mp.h>
 #include <game_mp/g_main_mp.h>
 #include <game_mp/g_utils_mp.h>
@@ -158,6 +159,10 @@ static void Stagger_Rotate2D(float *v, float degrees)
 
 void Actor_Stagger_Move(actor_s *self, float *dir, float *lookDir, float *moveDist)
 {
+    // euphoria (actor_sp_euphoria.cpp): the balance model's stride (0 while down)
+    const actor_euphoria_sv_t *eu = Actor_Euphoria_Think(self);
+    if ( eu )
+        *moveDist *= eu->strideScale;
     actor_stagger_t *st = Stagger_Get(self);
     float amount = Stagger_Amount(st);
     if ( amount <= 0.0f )
@@ -170,6 +175,13 @@ void Actor_Stagger_Move(actor_s *self, float *dir, float *lookDir, float *moveDi
 
 void Actor_Stagger_Push(actor_s *self)
 {
+    // euphoria: the feet move under the displaced centre of mass
+    const actor_euphoria_sv_t *eu = Actor_Euphoria_Think(self);
+    if ( eu )
+    {
+        self->Physics.vWishDelta[0] += eu->pushDelta[0];
+        self->Physics.vWishDelta[1] += eu->pushDelta[1];
+    }
     actor_stagger_t *st = Stagger_Get(self);
     if ( Stagger_Amount(st) <= 0.0f || st->pushDelta == 0.0f )
         return;
@@ -182,21 +194,40 @@ void Actor_Stagger_Push(actor_s *self)
 
 void Actor_Stagger_Tilt(actor_s *self)
 {
+    // euphoria: the server's lean / fall tilt of the entity (hit boxes, and the far LOD on the client)
+    const actor_euphoria_sv_t *eu = Actor_Euphoria_Think(self);
+    float pitch = 0.0f;
+    float roll = 0.0f;
+    bool any = false;
+    if ( eu && self->eAnimMode == AI_ANIM_MOVE_CODE )
+    {
+        pitch += eu->tiltPitch;
+        roll += eu->tiltRoll;
+        any = true;
+    }
     actor_stagger_t *st = Stagger_Get(self);
     float amount = Stagger_Amount(st);
-    if ( amount <= 0.0f )
-        return;
-    if ( self->eAnimMode != AI_ANIM_MOVE_CODE )
+    if ( amount > 0.0f )
     {
-        // a scripted animation (window climb, attack, traversal): retail angles (Actor_SetBodyAngle zeroed them),
-        // the lean fades so the return to the path does not snap
-        st->roll *= 0.5f;
-        st->pitch *= 0.5f;
-        st->yawOffset *= 0.5f;
-        st->pushDelta = 0.0f;
-        return;
+        if ( self->eAnimMode != AI_ANIM_MOVE_CODE )
+        {
+            // a scripted animation (window climb, attack, traversal): retail angles (Actor_SetBodyAngle zeroed them),
+            // the lean fades so the return to the path does not snap
+            st->roll *= 0.5f;
+            st->pitch *= 0.5f;
+            st->yawOffset *= 0.5f;
+            st->pushDelta = 0.0f;
+        }
+        else
+        {
+            Stagger_Step(self, st, amount, Actor_IsMoving(self) && Actor_HasPath(self));
+            pitch += st->pitch;
+            roll += st->roll;
+            any = true;
+        }
     }
-    Stagger_Step(self, st, amount, Actor_IsMoving(self) && Actor_HasPath(self));
-    self->ent->r.currentAngles[0] = st->pitch;
-    self->ent->r.currentAngles[2] = st->roll;
+    if ( !any )
+        return;
+    self->ent->r.currentAngles[0] = pitch;
+    self->ent->r.currentAngles[2] = roll;
 }

@@ -81,3 +81,40 @@ verify → showcase → publish → field note). The field note is in the univer
   by the engine's near-fall through a notify.
 - A "drunk" sound / grunt on the near-fall (`do_zombies_playvocals`).
 - Foot IK (`src/ik`) to pin the feet during a lurch.
+
+## Session 2 (2026-10-08): active ragdoll, hit reactions, falls and get-ups
+- The user's correction: no whole-model tilting as the answer; real full-body physics over the animations, reactions
+  per body part to every bullet, falls and get-ups, GTA IV as the reference. Also: reuse any existing physics code,
+  work locally (no push), a `.cmd` launcher, say what is verified.
+- Looked for an existing Euphoria-style controller in the available repos (iw4L, LibertyRecomp, GTA-IV-RECOMP): none
+  (LibertyRecomp only names a `m_physics` pointer "Euphoria/Bullet"). The core was written here so it can be the shared one.
+- Engine facts that shaped the design (all read in the source):
+  - the retail ragdoll (`src/ragdoll`) is a client-only passive corpse ragdoll built from `ragdoll.cfg` (14 bones, 28
+    joints) on the game's physics (`src/physics`); it writes its bodies into the DObj skeleton in model space through
+    `DObjSetSkelRotTransIndex` + `skel[bone].quat/trans/transWeight` in `Ragdoll_DoControllers`, run from
+    `CG_DoControllers` before `DObjCalcSkel`; bones not set are computed from their parents. That is the write path the
+    mod uses for a LIVE actor.
+  - the animated pose of the frame is not available at controller time (controllers run before `DObjCalcAnim`), and a
+    bone cannot be skel-set after its animation was calculated (`DObjSetSkelRotTransIndex` returns 0 on the anim bit). So
+    the client computes the animated pose into a scratch `DSkel` (swap `obj->skel.mat`, zero part bits, `DObjCalcSkel`,
+    restore): one extra skeleton calculation per euphoria zombie per frame.
+  - bullet hits on actors reach the client as `EV_BULLET_HIT` with the target entity (`groundEntityNum`), the hit bone
+    (`index.bone`), the weapon and the bullet start (`lerp.u.turret.gunAngles`) (`src/game/bullet.cpp`,
+    `CG_BulletHitEvent`): everything a client-side impulse needs.
+  - the server damage path for a surviving actor is `finishactordamage` -> `Actor_Pain(damage, point, mod, dir, hitLoc,
+    weapon)`: the server impulse hook.
+  - `animState.fAimUpDown / fAimLeftRight / fLeanAmount` are networked for actors and unused by zombies (the client only
+    reads lean for dogs; the aim fields are the MP player path): three free floats for the balance state.
+  - `DObjGetBoneIndex(obj, SL_FindString(name), &idx = 254, -1)` resolves a bone by name across the DObj's models.
+- Built `src/euphoria` (engine-free): XPBD rigid segments, joints + cone limits, motors to the animation's relative
+  rotations, pelvis authority, foot planting, ground plane, balance controller (lean / arms / step / knee), fall and
+  get-up states, impulses, a balance budget for accumulation; and the server's capture-point pendulum. Tuning done
+  against the tests (`tests/euphoria`): XPBD compliances had to be ~1e-5..1e-3 (inverse inertias 0.3-70), the
+  capture point must be judged relative to the animation's root velocity or a walking body "stumbles" forever, hits
+  needed a budget that weakens the animation's hold or they could never add up against it.
+- Verified: the core (13 g++ tests, all passing, 22 µs per body per 60 Hz frame). NOT verified: the MSVC build and
+  everything in-game (no Windows / game here). The `Check-Euphoria.cmd` self-test and the debug dvars are the oracles.
+- Open: `ragdoll.cfg` from the user's install (exact radii / limits of the retail ragdoll) to replace the estimated
+  segment radii and cone limits; world collision for fallen bodies; hit segment by bone name; server-side hit boxes
+  from the client's pose (or a server full body) if gameplay needs exact shots at a fallen zombie; melee / blast events
+  to the client.

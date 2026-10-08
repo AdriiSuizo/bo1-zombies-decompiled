@@ -1,3 +1,4 @@
+#include <cgame_mp/cg_euphoria.h> // mod: euphoria
 #include "cg_weapons.h"
 #include <bgame/bg_local.h>
 #include <cgame_mp/cg_local_mp.h>
@@ -6724,6 +6725,7 @@ void __cdecl CG_BulletHitEvent(
     const cg_s *cgameGlob; // [esp+3Ch] [ebp-10h]
     float exitDir[3]; // [esp+40h] [ebp-Ch] BYREF
 
+    CG_Euphoria_BulletHit(localClientNum, targetEntityNum, weaponIndex, startPos, position, damage, boneIndex); // mod: euphoria - an impulse on the hit zombie's full body
     if ( sv_clientSideBullets->current.enabled
         && IsEntityNotDoingClientSideBullets(localClientNum, targetEntityNum)
         && (eventParam & 4) == 0 )

@@ -454,6 +454,8 @@ set(SRC_CGAME_MP
 	"${SRC_DIR}/cgame_mp/cg_players_mp.cpp"
 	"${SRC_DIR}/cgame_mp/cg_players_mp.h"
 	"${SRC_DIR}/cgame_mp/cg_pose_mp.cpp"
+	"${SRC_DIR}/cgame_mp/cg_euphoria.cpp"
+	"${SRC_DIR}/cgame_mp/cg_euphoria.h"
 	"${SRC_DIR}/cgame_mp/cg_pose_mp.h"
 	"${SRC_DIR}/cgame_mp/cg_predict_mp.cpp"
 	"${SRC_DIR}/cgame_mp/cg_predict_mp.h"
@@ -892,6 +894,13 @@ set(SRC_GAME_SP_ACTOR
 	"${SRC_DIR}/game_sp/actor_sp_ext.h"
 	"${SRC_DIR}/game_sp/actor_sp_stagger.cpp"
 	"${SRC_DIR}/game_sp/actor_sp_stagger.h"
+	"${SRC_DIR}/game_sp/actor_sp_euphoria.cpp"
+	"${SRC_DIR}/game_sp/actor_sp_euphoria.h"
+	"${SRC_DIR}/euphoria/euphoria_math.h"
+	"${SRC_DIR}/euphoria/euphoria_body.cpp"
+	"${SRC_DIR}/euphoria/euphoria_body.h"
+	"${SRC_DIR}/euphoria/euphoria_balance.cpp"
+	"${SRC_DIR}/euphoria/euphoria_balance.h"
 )
 source_group("game_sp" FILES ${SRC_GAME_SP_ACTOR})
 

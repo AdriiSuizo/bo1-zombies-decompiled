@@ -69,6 +69,9 @@ struct actor_sp_ext_t
     int lookAtEntNum;                   // SP actor+0x88, lookatentity; ENTITYNUM_NONE at spawn (SP 0x007bbf50)
     unsigned short sightTraceHitNum[MAX_SENTIENTS_CAP]; // SP +0x31f8: per-sentient collision-brush hints
     actor_stagger_t stagger;            // mod: euphoria - script "drunk" / "drunkstumbles" (actor_sp_stagger.cpp); 0 = retail
+    float euphoria;                     // mod: euphoria - script "euphoria": the active-ragdoll balance (actor_sp_euphoria.cpp); 0 = retail
+    int euphoriaFalls;                  // mod: euphoria - script "euphoriafalls" (read-only)
+    int euphoriaState;                  // mod: euphoria - script "euphoriastate" (read-only): 0 standing 1 stumbling 2 fallen 3 getting up
 };
 
 actor_sp_ext_t *Actor_SP_Ext(const actor_s *actor);

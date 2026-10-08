@@ -1,4 +1,5 @@
 #include "cg_pose_mp.h"
+#include "cg_euphoria.h" // mod: euphoria
 #include <xanim/dobj_utils.h>
 #include <ragdoll/ragdoll_controller.h>
 #include "cg_local_mp.h"
@@ -83,6 +84,7 @@ void __cdecl CG_Actor_DoControllers(const cpose_t *pose, const DObj *obj, int *p
 
     if ( !obj && !Assert_MyHandler("C:\\projects_pc\\cod\\codsrc\\src\\cgame_mp\\cg_pose_mp.cpp", 520, 0, "%s", "obj") )
         __debugbreak();
+    CG_Euphoria_Controllers(pose, obj, partBits); // mod: euphoria - the full-body simulation replaces the animated bones (no-op for retail actors)
     mat = DObjGetRotTransArray(obj);
     if ( mat )
     {

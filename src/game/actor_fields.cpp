@@ -56,7 +56,7 @@ actor_fields_s aifield_delete =
 // 0x2780 / 0x27B0). The literal rows past 560 read and wrote other members, for MP dogs too.
 #define AFOFS(member) ((int)offsetof(actor_s, member))
 
-const actor_fields_s aifields[94] =
+const actor_fields_s aifields[97] =
 {
   { "type", AFOFS(species), { 4 }, F_INT, ActorScr_SetSpecies, ActorScr_GetSpecies },
   { "isdog", AFOFS(species), { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_GetIsDog },
@@ -161,6 +161,11 @@ const actor_fields_s aifields[94] =
   // (game_sp/actor_sp_stagger.cpp); drunkstumbles counts its stumbles (read-only, for the mod's self-test).
   { "drunk", AF_SP_EXT, { 4 }, F_FLOAT, ActorScr_SP_SetExtField, ActorScr_SP_GetExtField },
   { "drunkstumbles", AF_SP_EXT, { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_SP_GetExtField },
+  // mod: euphoria - the active-ragdoll balance (game_sp/actor_sp_euphoria.cpp): euphoria 0 (default) = retail, 1 = on
+  // (also scales the hit impulses); euphoriafalls / euphoriastate are read-only (state 0 standing 1 stumbling 2 fallen 3 getting up)
+  { "euphoria", AF_SP_EXT, { 4 }, F_FLOAT, ActorScr_SP_SetExtField, ActorScr_SP_GetExtField },
+  { "euphoriafalls", AF_SP_EXT, { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_SP_GetExtField },
+  { "euphoriastate", AF_SP_EXT, { 4 }, F_INT, ActorScr_ReadOnly, ActorScr_SP_GetExtField },
   { NULL, 0, { 0 }, F_INT, NULL, NULL }
 };
 

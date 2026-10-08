@@ -3,6 +3,7 @@
 #include <new>
 #include <game_sp/g_sp_measure.h>
 #include <game_sp/actor_sp_stagger.h> // mod: euphoria
+#include <game_sp/actor_sp_euphoria.h> // mod: euphoria
 #include "actor_mp.h"
 #include "g_main_mp.h"
 #include "g_utils_mp.h"
@@ -2172,6 +2173,7 @@ void __cdecl Actor_Pain(
     actor->damageDir[0] = *vDir;
     actor->damageDir[1] = vDir[1];
     actor->damageDir[2] = vDir[2];
+    Actor_Euphoria_OnPain(actor, iDamage, vPoint, vDir, (int)hitLoc, weaponIdx, iMod); // mod: euphoria - the hit as an impulse on the balance (no-op at self.euphoria 0)
     HitLocationString = G_GetHitLocationString(hitLoc);
     Scr_SetString(&actor->damageHitLoc, HitLocationString, SCRIPTINSTANCE_SERVER);
     Scr_SetString(&actor->damageMod, *modNames[iMod], SCRIPTINSTANCE_SERVER);

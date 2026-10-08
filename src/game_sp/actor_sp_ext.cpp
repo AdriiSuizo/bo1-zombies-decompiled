@@ -1,4 +1,5 @@
 #include "actor_sp_ext.h"
+#include "actor_sp_euphoria.h" // mod: euphoria
 
 #include <game/actor_animapi.h>
 #include <game/actor_fields.h>
@@ -76,6 +77,7 @@ void Actor_SP_RegisterDvars()
     ai_playerLOSRange = _Dvar_RegisterFloat("ai_playerLOSRange", 150.0f, 0.0f, 500.0f, 0x2080u, "");
     Actor_SP_RegisterExposedDvars();
     Actor_Stagger_RegisterDvars(); // mod: euphoria - bo1_mod_stagger* (actor_sp_stagger.cpp)
+    Actor_Euphoria_RegisterDvars(); // mod: euphoria - bo1_mod_euphoria* (actor_sp_euphoria.cpp)
 }
 
 // --- species ------------------------------------------------------------------------------------
@@ -90,6 +92,7 @@ void Actor_SP_LoadConsts()
     g_actorSpScrConstHuman = GScr_AllocString("human");
     g_actorSpScrConstZombie = GScr_AllocString("zombie");
     g_actorSpScrConstZombieDog = GScr_AllocString("zombie_dog");
+    Actor_Euphoria_LoadConsts(); // mod: euphoria - the euphoria_fall / _stumble / _getup notify strings
 }
 
 // zombies: human cover consumers in P6c still need this list (SP 0x01c79b64).
@@ -194,6 +197,9 @@ static const actor_sp_ext_field_t g_actorSpExtFields[] =
     // mod: euphoria (mods/euphoria) - the procedural stagger (actor_sp_stagger.cpp)
     { "drunk", offsetof(actor_sp_ext_t, stagger.amount) },
     { "drunkstumbles", offsetof(actor_sp_ext_t, stagger.stumbles) },
+    { "euphoria", offsetof(actor_sp_ext_t, euphoria) },
+    { "euphoriafalls", offsetof(actor_sp_ext_t, euphoriaFalls) },
+    { "euphoriastate", offsetof(actor_sp_ext_t, euphoriaState) },
 };
 
 static int Actor_SP_ExtFieldOfs(const actor_fields_s *pField)
